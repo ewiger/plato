@@ -45,6 +45,9 @@ class Command(object):
         # Compile sequence of tokens.         
         return self.separator.join(tokens)
 
+    def __call__(self):
+        self.run()
+
     def run(self):
         command = self.compose()
         if not command:
@@ -69,7 +72,7 @@ class Command(object):
             logging.info(output)
         else:
             logging.info('EMPTY OUTPUT')
-        return output
+        return (output, errors)
     
     def __or__(self, right):
         if type(self) == Pipeline and type(right) != Pipeline:
