@@ -90,7 +90,8 @@ class JobRunner(object):
 
 class Scheduler(object):
 
-    def __init__(self, monitor, logger):
+    def __init__(self, runner, monitor, logger):
+        self.runner = runner
         self.monitor = monitor        
         self.logger = logger
         if not self.logger:
@@ -139,5 +140,4 @@ class Scheduler(object):
             # Job finished.
             result = self.runner.get_result(job)
             self.complete_job(job, result)
-
-            
+          
