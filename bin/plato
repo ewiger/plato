@@ -1,0 +1,122 @@
+#!/usr/bin/env python
+import os
+import sys
+import argparse
+import logging
+import time
+
+def extend_sys_path(module_path, folders):
+    root_path = os.path.dirname(os.path.dirname(module_path))
+    print root_path
+    for folder in folders:
+        sys.path.append(os.path.join(root_path, folder))
+extend_sys_path(os.path.abspath(__file__), ('lib','src'))
+
+from daemon.runner import DaemonRunner
+from plato import getBasicLogger
+from plato.schedule.lsf import LsfScheduler, LsfRunner, LsfMonitor
+
+
+logger = getBasicLogger('plato', logging.DEBUG)
+is_interactive = False
+SCHEDULER = 'LSF'
+DEBUG = False
+
+
+def get_state_path():
+    home_dir = os.getenv('HOME', '~/')
+    state_path = os.path.join(home_dir,'.plato')
+    if not os.path.exists(state_path):
+        logger.warn('Creating a missing dir: %s' % state_path)
+        os.makedirs(state_path)
+    return state_path
+
+
+def get_scheduler():
+    runner = LsfRunner()
+    monitor = LsfMonitor(get_state_path(),SCHEDULER.lower(), is_interactive)
+    return LsfScheduler(runner, monitor)
+
+
+class PlatoApp():
+
+    def __init__(self):
+        self.stdin_path = '/dev/null'
+        self.stdout_path = '/dev/null'
+        self.stderr_path = '/dev/null'
+        self.pidfile_path =  os.path.join(get_state_path(), 'plato.pid')
+        self.pidfile_timeout = 5
+        self.sleepping_pause = 10
+        self.scheduler = get_scheduler()
+
+    def run(self):
+        while True:
+            self.scheduler.process_submitted_jobs()
+            self.scheduler.process_pending_jobs()
+            self.scheduler.process_running_jobs()
+            # Sleep 10 secs.
+            logger.info('Sleeping for %d (sec)..' % self.sleepping_pause)
+            time.sleep(self.sleepping_pause)
+
+
+def run_as_daemon(args):
+    plato_app = PlatoApp()
+    if not (DEBUG or is_interactive):
+        plato_app = PlatoApp()
+        app_argv = [sys.argv, args.action]
+        daemon_runner = DaemonRunner(plato_app, app_argv)
+        daemon_runner.do_action()
+    else:
+        plato_app.run()
+
+
+def list(args):
+    logger.info('listing jobs')
+    scheduler = get_scheduler()
+    jobs = scheduler.runner.list_jobs('*')
+    print jobs
+
+def submit(args):
+    logger.info('submit job')
+    if not args.batch_name:
+        batch_name = os.path.basename(args.command.split()[0])
+    info = dict()
+    info['command'] = args.command
+    info['queue'] = args.queue if not args.queue else 'default'
+    scheduler = get_scheduler()
+    job = scheduler.monitor.new_job(batch_name)
+    job.info = info
+    if not scheduler.submit_job(job):
+        logger.error('Failed to submit job: %s' % job)
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--interactive', action='store_true', default=False)
+    subparsers = parser.add_subparsers()
+    
+    # daemon
+    parser_daemon = subparsers.add_parser('daemon')
+    parser_daemon.add_argument('action', help="{start, stop, restart}")
+    parser_daemon.set_defaults(func=run_as_daemon)
+
+    # list 
+    parser_list = subparsers.add_parser('list')
+    parser_list.set_defaults(func=list)
+    
+    # submit
+    parser_submit = subparsers.add_parser('submit')
+    parser_submit.add_argument('--queue', default='default')
+    parser_submit.add_argument('--name', dest="batch_name", 
+                               help="Job title or batch name")
+    parser_submit.add_argument('command')
+    parser_submit.set_defaults(func=submit)
+
+    args = parser.parse_args()
+    if not args.func:
+        parser.print_help()
+        exit()
+
+    is_interactive = args.interactive
+    args.func(args)
+
