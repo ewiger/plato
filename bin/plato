@@ -7,7 +7,6 @@ import time
 
 def extend_sys_path(module_path, folders):
     root_path = os.path.dirname(os.path.dirname(module_path))
-    print root_path
     for folder in folders:
         sys.path.append(os.path.join(root_path, folder))
 extend_sys_path(os.path.abspath(__file__), ('lib','src'))
@@ -21,6 +20,7 @@ logger = getBasicLogger('plato', logging.DEBUG)
 is_interactive = False
 SCHEDULER = 'LSF'
 DEBUG = False
+DEBUG = True
 
 
 def get_state_path():
@@ -42,33 +42,40 @@ class PlatoApp():
 
     def __init__(self):
         self.stdin_path = '/dev/null'
-        self.stdout_path = '/dev/null'
-        self.stderr_path = '/dev/null'
+        self.stdout_path = '/dev/tty' if DEBUG else '/dev/null'
+        self.stderr_path = '/dev/tty' if DEBUG else '/dev/null'
         self.pidfile_path =  os.path.join(get_state_path(), 'plato.pid')
         self.pidfile_timeout = 5
         self.sleepping_pause = 10
         self.scheduler = get_scheduler()
 
+    def step(self):
+        self.scheduler.submitt_jobs()
+        self.scheduler.process_jobs()
+        self.scheduler.runner.forget_job_list()
+
     def run(self):
         while True:
-            self.scheduler.process_submitted_jobs()
-            self.scheduler.process_pending_jobs()
-            self.scheduler.process_running_jobs()
-            # Sleep 10 secs.
+            self.step()
+            # Sleep x seconds.
             logger.info('Sleeping for %d (sec)..' % self.sleepping_pause)
             time.sleep(self.sleepping_pause)
 
 
 def run_as_daemon(args):
     plato_app = PlatoApp()
-    if not (DEBUG or is_interactive):
+    if not is_interactive:
         plato_app = PlatoApp()
-        app_argv = [sys.argv, args.action]
+        app_argv = [sys.argv[0], args.action]
         daemon_runner = DaemonRunner(plato_app, app_argv)
         daemon_runner.do_action()
     else:
         plato_app.run()
 
+def run_steps(args):
+    plato_app = PlatoApp()
+    for index in range(args.times):
+        plato_app.step()
 
 def list(args):
     logger.info('listing jobs')
@@ -99,6 +106,11 @@ if __name__ == '__main__':
     parser_daemon = subparsers.add_parser('daemon')
     parser_daemon.add_argument('action', help="{start, stop, restart}")
     parser_daemon.set_defaults(func=run_as_daemon)
+
+    # run
+    parser_run = subparsers.add_parser('run')
+    parser_run.add_argument('times', nargs='?', type=int, default=1)
+    parser_run.set_defaults(func=run_steps)
 
     # list 
     parser_list = subparsers.add_parser('list')

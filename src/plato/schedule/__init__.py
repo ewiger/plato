@@ -2,6 +2,8 @@ import os
 from plato.findutils import find_files, Match
 import json
 import logging
+from time import time
+import json
 
 
 status_set = [
@@ -20,6 +22,21 @@ class JobResult(object):
         self.error = error
         self.details = details
 
+    @classmethod
+    def from_json(cls, json_string):
+        data = json.load(json_string)
+        if not data:
+            # Job has no result information
+            return
+        result = Result(
+            data['has_failed'],
+            data['output'],
+            data['error'],
+            data['details']
+        )
+
+    def as_json(self):
+        return json.dumps(self.__dict__)
 
 class Job(object):
     
@@ -42,6 +59,9 @@ class Job(object):
                 self.batch_name,
                 self.info
             )
+
+    def get_report_filename(self):
+        return 'plato_job_report.%s' % self.id
 
 
 class Monitor(object):
@@ -86,13 +106,16 @@ class Monitor(object):
         description = json.load(open(job_file))
         self.logger.debug(
             'Loading job with persistence monitor: %s', description)
+        result = description.get('result', None)
+        if result is not None:
+            result = JobResult.from_json(result)
         return Job(description['id'], description['batch_name'],
                    description['status'], info=description['info'],
-                   result=description.get('result', None)) 
+                   result=result) 
 
-    def save_job(self, job_file, job, info=None):
+    def save_job(self, job_filename, job, info=None):
         self.logger.debug(
-            'Saving job with persistence monitor into: %s', job_file)
+            'Saving job with persistence monitor into: %s', job_filename)
         description = {
             'id': job.id,
             'status': job.status,
@@ -100,10 +123,8 @@ class Monitor(object):
             'info': job.info,            
         }
         if job.result is not None:
-            description['result'] = job.result
-        fhandle = open(job_file, 'w+')
-        fhandle.write(json.dumps(description))
-        fhandle.close()
+            description['result'] = job.result.as_json()
+        json.dump(description, open(job_filename, 'w+'))
     
     def load_jobs(self, status_mask=status_set, ):
         jobs = list()
@@ -141,7 +162,10 @@ class Monitor(object):
 
 class JobRunner(object):
     
-    def __init__(self):
+    def __init__(self, report_path=None):
+        self.report_path = report_path 
+        if report_path is None: 
+            self.report_path = os.getcwd()
         self.__all_jobs = None
 
     @property
@@ -154,6 +178,17 @@ class JobRunner(object):
         if self.__all_jobs is None:
             self.__all_jobs = self.scheduler.runner.list_jobs('*')
         return self.__all_jobs
+
+    def forget_job_list(self):
+        self.__all_jobs = None
+
+    def get_report_filepath(self, job):
+        '''Return path to the report file of the job'''
+        return os.path.join(self.report_path, job.get_report_filename())
+
+    def report_file_exists(self, job):
+        '''True if report file exists for the job'''
+        return os.path.exists(self.get_report_filepath(job))
 
     def is_running(self, job):
         pass
@@ -182,6 +217,7 @@ class Scheduler(object):
         if resubmit:
             self.monitor.detach_job(job)
         job.status = 'submit'
+        job.info['submitted_at'] = time()
         self.monitor.attach_job(job)
         return success
         
@@ -198,18 +234,32 @@ class Scheduler(object):
         self.monitor.detach_job(job)
         job.info.update(result.details)
         job.status = 'pending'
+        job.info['pending_since'] = time()
         self.monitor.attach_job(job)
 
     def update_job(self, job):
-        if job.status != 'pending':
+        if not job.status in ('pending', 'run'):
             self.logger.error('Will only update jobs that are already pending.')
             return
-        if not self.runner.is_running(job):
-            self.logger.info('Job is not running yet: %s ' % job)
+        if self.runner.is_running(job):
+            # Update status if necessary.
+            if job.status == 'pending':
+                self.logger.info('Job is now running: %s ' % job)
+                self.monitor.detach_job(job)
+                job.status = 'run'
+                self.monitor.attach_job(job)
+            else:
+                self.logger.info('Job is still running: %s ' % job)
             return
-        self.monitor.detach_job(job)
-        job.status = 'run'
-        self.monitor.attach_job(job)
+        if self.runner.is_done(job) and self.runner.report_file_exists(job):
+            self.logger.info('Job is (already) done: %s ' % job)
+            # Job finished.
+            result = self.runner.get_result(job)
+            if not result:
+                self.error('Failed to obtain a result for: %s' % job)
+            self.complete_job(job, result)
+            return
+        self.logger.info('Job is still pending: %s' % job)
     
     def complete_job(self, job, result):
         if not job.status in ('submit', 'pending', 'run'):
@@ -217,22 +267,13 @@ class Scheduler(object):
             return
         self.monitor.detach_job(job)
         job.result = result
-        if result.has_failed:
+        if not result or result.has_failed:
             job.status = 'failed'
         else:
             job.status = 'done'
         self.monitor.attach_job(job)
-
-    def check_on_running_jobs(self):
-        running_jobs = self.monitor.load_jobs(['run'])
-        for job in running_jobs:
-            if self.runner.is_running(job):
-                continue
-            # Job finished.
-            result = self.runner.get_result(job)
-            self.complete_job(job, result)
    
-    def process_submitted_jobs(self):
+    def submitt_jobs(self):
         '''
         Make all freshly submitted plato jobs pending, i.e.
         Use actual low-level scheduler to submit them.
@@ -244,18 +285,15 @@ class Scheduler(object):
             # TODO: check what we can before submitting the job into the runner
             self.accept_job(job)
 
-    def process_pending_jobs(self):
-        '''        
+    def process_jobs(self):
+        '''
         Check status of all pending jobs whether or not they are running.
-        Change their status if necessary.
+        Change their status if necessary. Resolve jobs that has been complete or
+        failed.
         '''
-        pending_jobs = self.monitor.load_jobs(['pending'])
-        self.logger.info('Processing pending jobs.. found (%d) jobs',
+        pending_jobs = self.monitor.load_jobs(['pending', 'run'])
+        self.logger.info('Processing pending and running jobs.. found (%d) jobs',
                          len(pending_jobs))
-
-    def process_running_jobs(self):
-        '''
-        Resolve jobs that has completed or failed.
-        '''
-        pass
+        for job in pending_jobs:
+            self.update_job(job)
 
