@@ -150,6 +150,6 @@ class LsfMonitor(Monitor):
 
 class LsfScheduler(Scheduler):
     
-    def __init__(self, runner, monitor):
-        Scheduler.__init__(self, runner, monitor, logger)
+    def __init__(self, runner, monitor, logger, config=None)
+        Scheduler.__init__(self, runner, monitor, logger, config)
     

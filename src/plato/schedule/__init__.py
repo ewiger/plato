@@ -4,6 +4,7 @@ import json
 import logging
 from time import time
 import json
+from ConfigParser import ConfigParser
 
 
 status_set = [
@@ -201,10 +202,13 @@ class JobRunner(object):
 
 class Scheduler(object):
 
-    def __init__(self, runner, monitor, logger):
+    def __init__(self, runner, monitor, logger, config=None):
         self.logger = logger
         if not self.logger:
             self.logger = logging.getLogger('Batch Job Scheduler')
+        self.config = config
+        if not self.config:
+            self.config = ConfigParser()
         self.runner = runner
         self.runner.scheduler = self
         self.monitor = monitor

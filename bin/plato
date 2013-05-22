@@ -4,6 +4,7 @@ import sys
 import argparse
 import logging
 import time
+import ConfigParser
 
 def extend_sys_path(module_path, folders):
     root_path = os.path.dirname(os.path.dirname(module_path))
@@ -16,38 +17,54 @@ from plato import getBasicLogger
 from plato.schedule.lsf import LsfScheduler, LsfRunner, LsfMonitor
 
 
-logger = getBasicLogger('plato', logging.DEBUG)
-is_interactive = False
 SCHEDULER = 'LSF'
-DEBUG = False
+APP_NAME = 'plato'
+CONF_NAME = APP_NAME + '.conf'
 DEBUG = True
 
 
-def get_state_path():
-    home_dir = os.getenv('HOME', '~/')
-    state_path = os.path.join(home_dir,'.plato')
-    if not os.path.exists(state_path):
-        logger.warn('Creating a missing dir: %s' % state_path)
-        os.makedirs(state_path)
-    return state_path
-
-
-def get_scheduler():
-    runner = LsfRunner()
-    monitor = LsfMonitor(get_state_path(),SCHEDULER.lower(), is_interactive)
-    return LsfScheduler(runner, monitor)
+logger = getBasicLogger(APP_NAME, logging.DEBUG)
+is_interactive = False
 
 
 class PlatoApp():
 
-    def __init__(self):
+    def __init__(self, config_name=CONF_NAME):
         self.stdin_path = '/dev/null'
         self.stdout_path = '/dev/tty' if DEBUG else '/dev/null'
         self.stderr_path = '/dev/tty' if DEBUG else '/dev/null'
         self.pidfile_path =  os.path.join(get_state_path(), 'plato.pid')
         self.pidfile_timeout = 5
         self.sleepping_pause = 10
-        self.scheduler = get_scheduler()
+        self.config = ConfigParser.ConfigParser()
+        # Load defaults from .../bin/<APP>.conf
+        self.load_config(config_name)
+        # Override with user config is ~/<APP>.conf
+        self.__state_path = None
+        config_in_homedir = 
+        self.load_config(config_name, os.path.expanduser('~/' + CONF_NAME))
+        self.scheduler = get_scheduler(self.config)
+
+    def load_config(self, config_name=CONF_NAME, config_dir=None):
+        if config_dir is None:
+            config_dir = os.path.dirname(os.path.dirname(
+                os.path.abspath(__file__)))
+        config_path = os.path.join(config_dir, config_name)
+        self.config.read(config_path)
+        config.read([config_name, os.path.expanduser('~/.%s' % CONF_NAME)])
+
+    def get_state_path(self):
+        if self.__state_path is None:
+            state_path = os.path.expanduser('~/.' + APP_NAME)
+            if not os.path.exists(state_path):
+                logger.warn('Creating a missing dir: %s' % state_path)
+                os.makedirs(state_path)
+        return self.__state_path
+
+    def create_scheduler(self, config):
+        runner = LsfRunner()
+        monitor = LsfMonitor(get_state_path(),SCHEDULER.lower(), is_interactive)
+        return LsfScheduler(runner, monitor, config=config)
 
     def step(self):
         self.scheduler.submitt_jobs()
@@ -62,6 +79,8 @@ class PlatoApp():
             time.sleep(self.sleepping_pause)
 
 
+# Below go function that do actual work based on command lien arguments
+
 def run_as_daemon(args):
     plato_app = PlatoApp()
     if not is_interactive:
@@ -72,16 +91,20 @@ def run_as_daemon(args):
     else:
         plato_app.run()
 
+
 def run_steps(args):
     plato_app = PlatoApp()
     for index in range(args.times):
         plato_app.step()
 
+
 def list(args):
+    '''List plato registered jobs (not runner's like LSF).'''
     logger.info('listing jobs')
     scheduler = get_scheduler()
     jobs = scheduler.runner.list_jobs('*')
     print jobs
+
 
 def submit(args):
     logger.info('submit job')
