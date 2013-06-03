@@ -9,15 +9,17 @@ import ConfigParser
 def extend_sys_path(module_path, folders):
     root_path = os.path.dirname(os.path.dirname(module_path))
     for folder in folders:
-        sys.path.append(os.path.join(root_path, folder))
+        # Prepend path to the modules effectively prioritizing them.
+        sys.path.insert(0, os.path.join(root_path, folder))
 extend_sys_path(os.path.abspath(__file__), ('lib','src'))
 
 from daemon.runner import DaemonRunner
 from plato import getBasicLogger
-from plato.schedule.lsf import LsfScheduler, LsfRunner, LsfMonitor
+from plato.schedule import Scheduler
 
 
-SCHEDULER = 'LSF'
+USER_HOME_DIR = os.path.expanduser('~/')
+SCHEDULER = 'LOCAL'
 APP_NAME = 'plato'
 CONF_NAME = APP_NAME + '.conf'
 DEBUG = True
@@ -29,42 +31,95 @@ is_interactive = False
 
 class PlatoApp():
 
-    def __init__(self, config_name=CONF_NAME):
-        self.stdin_path = '/dev/null'
-        self.stdout_path = '/dev/tty' if DEBUG else '/dev/null'
-        self.stderr_path = '/dev/tty' if DEBUG else '/dev/null'
-        self.pidfile_path =  os.path.join(get_state_path(), 'plato.pid')
-        self.pidfile_timeout = 5
-        self.sleepping_pause = 10
-        self.config = ConfigParser.ConfigParser()
+    def __init__(self, config_name=CONF_NAME, scheme_name=SCHEDULER):
+        self.__state_path = None #  Must be set for get_state_path().
+        self.config = ConfigParser.ConfigParser(defaults=self.get_config_vars())
+        self.init_config(config_name)
+        self.scheduler = Scheduler.create(
+            scheme_name, self.state_path, self.config)
+        
+    def get_config_vars(self):
+        '''Mainly defined shared variables with defaults'''
+        return dict(
+            # Fallback to default folder in user home.
+            statepath=os.path.expanduser('~/.' + APP_NAME),
+            schedulername=SCHEDULER.lower(),
+            )
+    
+    def init_config(self, config_name):
+        # Start with building some defaults.
+        # Init/set application options.
+        self.config.add_section('app')
+        #self.config.set('app', 'statepath', '%(default_statepath)s')
+        self.config.set('app', 'scheduler', '%(schedulername)s')   
+        # Init/set dameon options.
+        self.config.add_section('daemon')
+        self.config.set('daemon', 'stdin_path', '/dev/null')
+        self.config.set('daemon', 'stdout_path',
+                        '/dev/tty' if DEBUG else '/dev/null')
+        self.config.set('daemon', 'stderr_path',
+                        '/dev/tty' if DEBUG else '/dev/null')
+        self.config.set('daemon', 'pidfile_path', 
+                        '%(statepath)s' + APP_NAME + '.pid')
+        self.config.set('daemon', 'pidfile_timeout', '5')
+        self.config.set('daemon', 'sleepping_pause', '10')
+        # Init/set scheduler options.
+        self.config.add_section('scheduler')
+        self.config.set('scheduler', 'isinteractive', str(int(is_interactive)))        
         # Load defaults from .../bin/<APP>.conf
-        self.load_config(config_name)
-        # Override with user config is ~/<APP>.conf
-        self.__state_path = None
-        config_in_homedir = 
-        self.load_config(config_name, os.path.expanduser('~/' + CONF_NAME))
-        self.scheduler = get_scheduler(self.config)
-
-    def load_config(self, config_name=CONF_NAME, config_dir=None):
+        self.load_config(config_name=config_name)
+        # Override with user config which is ~/<APP>.conf
+        self.load_config(USER_HOME_DIR, config_name)
+        # Assert configuration for correctness.
+        self.config.has_section('app')
+        assert self.config.get('app', 'statepath') is not None
+    
+    def load_config(self, config_dir=None, config_name=CONF_NAME):
+        '''
+        Load configuration from supplied filename. By default configuration
+        directory is set to point to '.../bin/<APP>.conf'
+        '''
         if config_dir is None:
-            config_dir = os.path.dirname(os.path.dirname(
-                os.path.abspath(__file__)))
+            config_dir = os.path.dirname(os.path.abspath(__file__))
         config_path = os.path.join(config_dir, config_name)
-        self.config.read(config_path)
-        config.read([config_name, os.path.expanduser('~/.%s' % CONF_NAME)])
+        if os.path.exists(config_path):
+            logger.info('Loading %s' % config_path)
+            self.config.read(config_path)
 
-    def get_state_path(self):
+    @property
+    def state_path(self):
         if self.__state_path is None:
-            state_path = os.path.expanduser('~/.' + APP_NAME)
-            if not os.path.exists(state_path):
-                logger.warn('Creating a missing dir: %s' % state_path)
-                os.makedirs(state_path)
+            # Try to get configuration option.
+            self.__state_path = self.config.get('app', 'statepath')
+            if not os.path.exists(self.__state_path):
+                logger.warn('Creating a missing dir: %s' % self.__state_path)
+                os.makedirs(self.__state_path)
         return self.__state_path
+    
+    @property
+    def stdin_path(self):
+        '''Part of DaemonRunner protocol'''
+        return self.config.get('daemon', 'stdin_path')
 
-    def create_scheduler(self, config):
-        runner = LsfRunner()
-        monitor = LsfMonitor(get_state_path(),SCHEDULER.lower(), is_interactive)
-        return LsfScheduler(runner, monitor, config=config)
+    @property
+    def stdout_path(self):
+        '''Part of DaemonRunner protocol'''
+        return self.config.get('daemon', 'stdout_path')
+    
+    @property
+    def stderr_path(self):
+        '''Part of DaemonRunner protocol'''
+        return self.config.get('daemon', 'stderr_path')
+    
+    @property    
+    def pidfile_path(self):
+        '''Part of DaemonRunner protocol'''
+        return self.config.get('daemon', 'pidfile_path')
+    
+    @property
+    def pidfile_timeout(self):
+        '''Part of DaemonRunner protocol'''
+        return self.config.get('daemon', 'pidfile_timeout')
 
     def step(self):
         self.scheduler.submitt_jobs()
@@ -75,11 +130,19 @@ class PlatoApp():
         while True:
             self.step()
             # Sleep x seconds.
-            logger.info('Sleeping for %d (sec)..' % self.sleepping_pause)
-            time.sleep(self.sleepping_pause)
+            sleepping_pause = self.config.getint('daemon', 'sleepping_pause')
+            logger.info('Sleeping for %d (sec)..' % sleepping_pause)
+            time.sleep(sleepping_pause)
 
 
-# Below go function that do actual work based on command lien arguments
+def get_scheduler():
+    '''
+    Instance application, read configuration in order to construct and 
+    return scheduler object.
+    '''
+    return PlatoApp().scheduler
+
+# Below go function that do actual work based on command line arguments
 
 def run_as_daemon(args):
     plato_app = PlatoApp()

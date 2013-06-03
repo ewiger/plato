@@ -1,10 +1,19 @@
 import os
-from plato.findutils import find_files, Match
+from plato.shell.findutils import find_files, Match
 import json
 import logging
 from time import time
 import json
 from ConfigParser import ConfigParser
+from importlib import import_module
+
+
+class PlatoException(Exception):
+    '''Base class for plato exceptions'''
+
+
+class NoSchedulerFound(PlatoException):   
+    '''Failed to find scheduler'''
 
 
 status_set = [
@@ -29,7 +38,7 @@ class JobResult(object):
         if not data:
             # Job has no result information
             return
-        result = Result(
+        result = JobResult(
             data['has_failed'],
             data['output'],
             data['error'],
@@ -68,6 +77,7 @@ class Job(object):
 class Monitor(object):
 
     def __init__(self, state_path, job_prefix, is_interactive=False):
+        self.scheduler = None  # Set it after initialization
         self.state_path = state_path
         self.job_prefix = job_prefix
         self.is_interactive = is_interactive
@@ -175,7 +185,7 @@ class JobRunner(object):
 
     @property
     def all_jobs(self):
-        '''Jobs that run by the underlining scheduler's runner (cluster).'''
+        '''Jobs that run by the underling scheduler's runner (cluster).'''
         if self.__all_jobs is None:
             self.__all_jobs = self.scheduler.runner.list_jobs('*')
         return self.__all_jobs
@@ -192,28 +202,45 @@ class JobRunner(object):
         return os.path.exists(self.get_report_filepath(job))
 
     def is_running(self, job):
+        '''
+        Inherit this method to check for scheduler-specific parameters.
+        '''
         pass
 
     def execute(self, job):
         pass
 
-    
-
 
 class Scheduler(object):
 
-    def __init__(self, runner, monitor, logger, config=None):
+    def __init__(self, runner, monitor, config=None, logger=None):
         self.logger = logger
-        if not self.logger:
+        if self.logger is None:
             self.logger = logging.getLogger('Batch Job Scheduler')
         self.config = config
-        if not self.config:
+        if self.config is None:
             self.config = ConfigParser()
         self.runner = runner
         self.runner.scheduler = self
         self.monitor = monitor
         self.monitor.scheduler = self
         self.monitor.init_db()
+    
+    @classmethod
+    def create(cls, scheme_name, state_path, config, is_interactive=None, logger=None):
+        '''Create scheduler by its scheme name'''
+        scheme = import_module('plato.schedule.' + scheme_name.lower())
+        assert len(scheme_name) > 1
+        # E.g. 'LSF' -> 'Lsf'
+        prefix = scheme_name[0].upper() + scheme_name[1:].lower() 
+        RunnerCls = getattr(scheme, prefix + 'Runner')
+        MonitorCls = getattr(scheme, prefix + 'Monitor')
+        SchedulerCls = getattr(scheme, prefix + 'Scheduler')
+        runner = RunnerCls()
+        if is_interactive is None:
+            is_interactive = config.getboolean('scheduler', 'isinteractive') 
+        monitor = MonitorCls(state_path, scheme_name, is_interactive)
+        return SchedulerCls(runner, monitor, config=config, logger=logger)
     
     def submit_job(self, job, resubmit=False):
         success = True
@@ -258,6 +285,7 @@ class Scheduler(object):
         if self.runner.is_done(job) and self.runner.report_file_exists(job):
             self.logger.info('Job is (already) done: %s ' % job)
             # Job finished.
+            # TODO: check that file is not written into anymore
             result = self.runner.get_result(job)
             if not result:
                 self.error('Failed to obtain a result for: %s' % job)

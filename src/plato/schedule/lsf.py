@@ -1,14 +1,18 @@
 '''
 Implementation of plato scheduler for Platform LSF 
 '''
-import os
 import re
 import logging
 from StringIO import StringIO
 from plato import getBasicLogger 
-from plato.schedule import (Monitor, Scheduler, JobRunner, JobResult)
+from plato.schedule import (Monitor, Scheduler, JobRunner, JobResult,
+    NoSchedulerFound)
 
-from sh import bjobs, bsub, bkill
+try:
+    from sh import bjobs, bsub, bkill
+except ImportError:
+    raise NoSchedulerFound('Failed to locate LSF commands like bjobs, '
+                           'bsub, bkill. Is LSF installed?')
 
 
 NEW_LINE = '\n'
@@ -22,6 +26,7 @@ logger = getBasicLogger('lsf', logging.DEBUG)
 job_expr = re.compile(r'(\d+)\s+(\w+)\s+(\w+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(.*)')
 submit_expr = re.compile(
     r'Job <(\d*)> is submitted to queue <([^>]*)>', re.MULTILINE)
+
 
 class LsfRunner(JobRunner):
     
@@ -39,6 +44,7 @@ class LsfRunner(JobRunner):
         if not lsf_id in self.all_jobs:
             # Check if report file is found
             if self.report_file_exists(job):
+                report = self.get_report_filepath(job)
                 self.logger.info('Found a report file for job [%d]: %s' % (
                                  job.id, report))
                 return True
@@ -122,7 +128,7 @@ class LsfRunner(JobRunner):
         logger.debug(error_message)
         if re.search(r'No (?:\w* )job found', error_message):
             return result
-        # Parse job info, packed it into dictionary
+        # Parse job info, pack it into dictionary
         job_lines = output.split('\n')[1:]  # skip column headers
         for job_line in job_lines:
             job_line = job_line.strip()
@@ -149,7 +155,5 @@ class LsfMonitor(Monitor):
 
 
 class LsfScheduler(Scheduler):
-    
-    def __init__(self, runner, monitor, logger, config=None)
-        Scheduler.__init__(self, runner, monitor, logger, config)
+    pass
     
