@@ -175,6 +175,12 @@ def submit(args):
         batch_name = os.path.basename(args.command.split()[0])
     info = dict()
     info['command'] = args.command
+    if info['command'] == '-':
+        # Treat standard input as submission shell line
+        lines = [line for line in sys.stdin]
+        if len(lines) > 1:
+            raise Exception('Multiline command submission is not supported (yet)!')
+        info['command'] = lines[0].strip()
     info['queue'] = args.queue if not args.queue else 'default'
     scheduler = get_scheduler()
     job = scheduler.monitor.new_job(batch_name)

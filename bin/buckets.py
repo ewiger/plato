@@ -3,7 +3,7 @@ import os
 import argparse
 import tempfile
 from functools import total_ordering
-from plato.findutils import (Match, collect_size, find_files)
+from plato.shell.findutils import (Match, collect_size, find_files)
 
 
 @total_ordering
