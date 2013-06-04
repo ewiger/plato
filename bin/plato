@@ -31,19 +31,24 @@ is_interactive = False
 
 class PlatoApp():
 
-    def __init__(self, config_name=CONF_NAME, scheme_name=SCHEDULER):
+    def __init__(self, config_name=CONF_NAME, schedulername=SCHEDULER):
         self.__state_path = None #  Must be set for get_state_path().
-        self.config = ConfigParser.ConfigParser(defaults=self.get_config_vars())
-        self.init_config(config_name)
+        self.config = ConfigParser.ConfigParser(
+            defaults=self.get_config_vars(schedulername=schedulername))
+        self.init_config(config_name)        
         self.scheduler = Scheduler.create(
-            scheme_name, self.state_path, self.config)
-        
-    def get_config_vars(self):
+            self.schedulername, self.state_path, self.config)
+    
+    @property
+    def schedulername(self):
+        return self.config.get('app', 'scheduler')
+    
+    def get_config_vars(self, schedulername):
         '''Mainly defined shared variables with defaults'''
         return dict(
             # Fallback to default folder in user home.
             statepath=os.path.expanduser('~/.' + APP_NAME),
-            schedulername=SCHEDULER.lower(),
+                schedulername=schedulername,
             )
     
     def init_config(self, config_name):
