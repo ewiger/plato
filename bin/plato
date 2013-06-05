@@ -194,8 +194,17 @@ def submit(args):
         logger.error('Failed to submit job: %s' % job)
 
 
+
+class ArgumentParser(argparse.ArgumentParser):
+    
+    def error(self, message):        
+        self.print_help(sys.stderr)
+        self.exit(2, '%s: error: %s\n' % (self.prog, message))
+
+
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
+    parser = ArgumentParser(description='Command-line interface for plato '
+                            + 'batch submission system.')
     parser.add_argument('--interactive', action='store_true', default=False)
     subparsers = parser.add_subparsers()
     
@@ -221,10 +230,9 @@ if __name__ == '__main__':
     parser_submit.add_argument('command')
     parser_submit.set_defaults(func=submit)
 
+    # Parse arguments.
     args = parser.parse_args()
-    if not args.func:
-        parser.print_help()
-        exit()
+    # On error this will print help and cause exit with explanation message.
 
     is_interactive = args.interactive
     args.func(args)

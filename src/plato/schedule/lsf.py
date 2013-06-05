@@ -58,7 +58,7 @@ class LsfRunner(JobRunner):
         if job.info['queue'] == 'default':
             report = self.get_report_filepath(job)
             result.output = bsub(
-                '-oo', report,
+                '-o', report,
                 _in=job.info['command'], 
                 _err=stderr,
             ).strip()
