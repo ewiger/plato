@@ -251,6 +251,7 @@ class LocalRunner(JobRunner):
         return False
 
     def execute(self, job):
+        super(LocalRunner, self).execute(job)
         result = JobResult(has_failed=True, details=job.info.copy())        
         if job.info['queue'] == 'default':
             report_filename = self.get_report_filepath(job)

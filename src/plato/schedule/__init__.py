@@ -48,10 +48,11 @@ class JobResult(object):
     def as_json(self):
         return json.dumps(self.__dict__)
 
+
 class Job(object):
     
     def __init__(self, id, batch_name, status='submit', is_attached=True, 
-                 info={}, result=None):
+                 info={}, result=None, file_attachments={}):
         self.id = id
         self.status = status
         # Is attached to the monitor?
@@ -60,7 +61,8 @@ class Job(object):
         # Scheduler specific info
         self.info = info
         # If we already know the result
-        self.result = result 
+        self.result = result
+        self.file_attachments = file_attachments 
     
     def __repr__(self):
         return '[%d] <%s> batch: %s |%s|' % (
@@ -119,10 +121,10 @@ class Monitor(object):
             'Loading job with persistence monitor: %s', description)
         result = description.get('result', None)
         if result is not None:
-            result = JobResult.from_json(result)
+            result = JobResult.from_json(result)         
         return Job(description['id'], description['batch_name'],
                    description['status'], info=description['info'],
-                   result=result) 
+                   result=result, file_attachments=description['file_attachments']) 
 
     def save_job(self, job_filename, job, info=None):
         self.logger.debug(
@@ -131,7 +133,8 @@ class Monitor(object):
             'id': job.id,
             'status': job.status,
             'batch_name': job.batch_name,
-            'info': job.info,            
+            'info': job.info,
+            'file_attachments':job.file_attachments, 
         }
         if job.result is not None:
             description['result'] = job.result.as_json()
@@ -173,10 +176,12 @@ class Monitor(object):
 
 class JobRunner(object):
     
-    def __init__(self, report_path=None):
+    def __init__(self, report_path=None, attachment_path=None):
         self.report_path = report_path 
         if report_path is None: 
             self.report_path = os.getcwd()
+        if attachment_path is None: 
+            self.attachment_path = os.getcwd()
         self.__all_jobs = None
 
     @property
@@ -204,11 +209,33 @@ class JobRunner(object):
     def is_running(self, job):
         '''
         Inherit this method to check for scheduler-specific parameters.
-        '''
+        ''' 
         pass
 
+    def save_attachments(self, job):
+        '''
+        If job has any attachments in it, now is the moment to create them
+        as well as to pass info about them into the command.
+        '''
+        if not job.file_attachments:
+            return
+        file_pathnames = dict()
+        for file_name in job.file_attachments:
+            file_path = os.path.join(self.attachment_path, file_name)            
+            data = job.file_attachments[file_name]
+            attachment_file = open(file_path, 'w+')
+            attachment_file.write(data)
+            attachment_file.close()
+            file_pathnames[file_name] = file_path
+        # Substitute all filename entries in the command with real pathnames.
+        job.info['command'] = job.info['command'].format(file_pathnames)  
+
     def execute(self, job):
-        pass
+        '''
+        Override this to implement job execution using concrete scheduler.
+        '''
+        self.save_attachments(job)
+
 
 
 class Scheduler(object):
@@ -229,8 +256,8 @@ class Scheduler(object):
     @classmethod
     def create(cls, scheme_name, state_path, config, is_interactive=None, logger=None):
         '''Create scheduler by its scheme name'''
-        scheme = import_module('plato.schedule.' + scheme_name.lower())
         assert len(scheme_name) > 1
+        scheme = import_module('plato.schedule.' + scheme_name.lower())        
         # E.g. 'LSF' -> 'Lsf'
         prefix = scheme_name[0].upper() + scheme_name[1:].lower() 
         RunnerCls = getattr(scheme, prefix + 'Runner')
@@ -247,7 +274,7 @@ class Scheduler(object):
         # If we resubmit a failed job - we want to detach it.
         if resubmit:
             self.monitor.detach_job(job)
-        job.status = 'submit'
+        job.status = 'submit'         
         job.info['submitted_at'] = time()
         self.monitor.attach_job(job)
         return success

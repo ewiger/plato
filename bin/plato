@@ -3,8 +3,6 @@ import os
 import sys
 import argparse
 import logging
-import time
-import ConfigParser
 
 def extend_sys_path(module_path, folders):
     root_path = os.path.dirname(os.path.dirname(module_path))
@@ -13,9 +11,10 @@ def extend_sys_path(module_path, folders):
         sys.path.insert(0, os.path.join(root_path, folder))
 extend_sys_path(os.path.abspath(__file__), ('lib','src'))
 
+
 from daemon.runner import DaemonRunner
 from plato import getBasicLogger
-from plato.schedule import Scheduler
+from plato.application import PlatoApp
 
 
 USER_HOME_DIR = os.path.expanduser('~/')
@@ -23,136 +22,27 @@ SCHEDULER = 'LOCAL'
 APP_NAME = 'plato'
 CONF_NAME = APP_NAME + '.conf'
 DEBUG = True
-
+APP_BIN_DIR = os.path.dirname(os.path.abspath(__file__))
 
 logger = getBasicLogger(APP_NAME, logging.DEBUG)
 is_interactive = False
 
-
-class PlatoApp():
-
-    def __init__(self, config_name=CONF_NAME, schedulername=SCHEDULER):
-        self.__state_path = None #  Must be set for get_state_path().
-        self.config = ConfigParser.ConfigParser(
-            defaults=self.get_config_vars(schedulername=schedulername))
-        self.init_config(config_name)        
-        self.scheduler = Scheduler.create(
-            self.schedulername, self.state_path, self.config)
-    
-    @property
-    def schedulername(self):
-        return self.config.get('app', 'scheduler')
-    
-    def get_config_vars(self, schedulername):
-        '''Mainly defined shared variables with defaults'''
-        return dict(
-            # Fallback to default folder in user home.
-            statepath=os.path.expanduser('~/.' + APP_NAME),
-                schedulername=schedulername,
-            )
-    
-    def init_config(self, config_name):
-        # Start with building some defaults.
-        # Init/set application options.
-        self.config.add_section('app')
-        #self.config.set('app', 'statepath', '%(default_statepath)s')
-        self.config.set('app', 'scheduler', '%(schedulername)s')   
-        # Init/set dameon options.
-        self.config.add_section('daemon')
-        self.config.set('daemon', 'stdin_path', '/dev/null')
-        self.config.set('daemon', 'stdout_path',
-                        '/dev/tty' if DEBUG else '/dev/null')
-        self.config.set('daemon', 'stderr_path',
-                        '/dev/tty' if DEBUG else '/dev/null')
-        self.config.set('daemon', 'pidfile_path', 
-                        '%(statepath)s' + APP_NAME + '.pid')
-        self.config.set('daemon', 'pidfile_timeout', '5')
-        self.config.set('daemon', 'sleepping_pause', '10')
-        # Init/set scheduler options.
-        self.config.add_section('scheduler')
-        self.config.set('scheduler', 'isinteractive', str(int(is_interactive)))        
-        # Load defaults from .../bin/<APP>.conf
-        self.load_config(config_name=config_name)
-        # Override with user config which is ~/<APP>.conf
-        self.load_config(USER_HOME_DIR, config_name)
-        # Assert configuration for correctness.
-        self.config.has_section('app')
-        assert self.config.get('app', 'statepath') is not None
-    
-    def load_config(self, config_dir=None, config_name=CONF_NAME):
-        '''
-        Load configuration from supplied filename. By default configuration
-        directory is set to point to '.../bin/<APP>.conf'
-        '''
-        if config_dir is None:
-            config_dir = os.path.dirname(os.path.abspath(__file__))
-        config_path = os.path.join(config_dir, config_name)
-        if os.path.exists(config_path):
-            logger.info('Loading %s' % config_path)
-            self.config.read(config_path)
-
-    @property
-    def state_path(self):
-        if self.__state_path is None:
-            # Try to get configuration option.
-            self.__state_path = self.config.get('app', 'statepath')
-            if not os.path.exists(self.__state_path):
-                logger.warn('Creating a missing dir: %s' % self.__state_path)
-                os.makedirs(self.__state_path)
-        return self.__state_path
-    
-    @property
-    def stdin_path(self):
-        '''Part of DaemonRunner protocol'''
-        return self.config.get('daemon', 'stdin_path')
-
-    @property
-    def stdout_path(self):
-        '''Part of DaemonRunner protocol'''
-        return self.config.get('daemon', 'stdout_path')
-    
-    @property
-    def stderr_path(self):
-        '''Part of DaemonRunner protocol'''
-        return self.config.get('daemon', 'stderr_path')
-    
-    @property    
-    def pidfile_path(self):
-        '''Part of DaemonRunner protocol'''
-        return self.config.get('daemon', 'pidfile_path')
-    
-    @property
-    def pidfile_timeout(self):
-        '''Part of DaemonRunner protocol'''
-        return self.config.get('daemon', 'pidfile_timeout')
-
-    def step(self):
-        self.scheduler.submitt_jobs()
-        self.scheduler.process_jobs()
-        self.scheduler.runner.forget_job_list()
-
-    def run(self):
-        while True:
-            self.step()
-            # Sleep x seconds.
-            sleepping_pause = self.config.getint('daemon', 'sleepping_pause')
-            logger.info('Sleeping for %d (sec)..' % sleepping_pause)
-            time.sleep(sleepping_pause)
+def get_plato_app():
+    plato_app = PlatoApp(APP_NAME, logger, CONF_NAME, SCHEDULER, 
+                         is_interactive=is_interactive, debug=DEBUG)    
+    plato_app.load_config(APP_BIN_DIR)
+    plato_app.validate_config()
+    return plato_app
 
 
 def get_scheduler():
-    '''
-    Instance application, read configuration in order to construct and 
-    return scheduler object.
-    '''
-    return PlatoApp().scheduler
+    return get_plato_app().scheduler
 
-# Below go function that do actual work based on command line arguments
 
+# Below go functions that do actual work based on command line arguments
 def run_as_daemon(args):
-    plato_app = PlatoApp()
-    if not is_interactive:
-        plato_app = PlatoApp()
+    plato_app = get_plato_app()
+    if not is_interactive:        
         app_argv = [sys.argv[0], args.action]
         daemon_runner = DaemonRunner(plato_app, app_argv)
         daemon_runner.do_action()
@@ -160,10 +50,9 @@ def run_as_daemon(args):
         plato_app.run()
 
 
-def run_steps(args):
-    plato_app = PlatoApp()
+def run_steps(args):    
     for index in range(args.times):
-        plato_app.step()
+        get_plato_app().step()
 
 
 def list(args):
@@ -236,4 +125,3 @@ if __name__ == '__main__':
 
     is_interactive = args.interactive
     args.func(args)
-

@@ -53,6 +53,7 @@ class LsfRunner(JobRunner):
         return found_job_info['lsf_status'].lower() == 'done'
 
     def execute(self, job):
+        super(LsfRunner, self).execute(job)
         result = JobResult(has_failed=True, details=job.info.copy())
         stderr = StringIO()
         if job.info['queue'] == 'default':
