@@ -5,20 +5,24 @@ import re
 import logging
 from StringIO import StringIO
 from plato import getBasicLogger 
+
 from plato.schedule import (Monitor, Scheduler, JobRunner, JobResult,
     NoSchedulerFound)
+
+
+logger = getBasicLogger(__name__)
+
 
 try:
     from sh import bjobs, bsub, bkill
 except ImportError:
-    raise NoSchedulerFound('Failed to locate LSF commands like bjobs, '
+    exception = NoSchedulerFound('Failed to locate LSF commands like bjobs, '
                            'bsub, bkill. Is LSF installed?')
+    logger.warn(exception)
 
 
 NEW_LINE = '\n'
 NUM_SECTION_LINES = 1000
-
-logger = getBasicLogger('lsf', logging.DEBUG)
 
 
 #JOBID      USER    STAT  QUEUE      FROM_HOST   EXEC_HOST   JOB_NAME   SUBMIT_TIME
@@ -30,12 +34,12 @@ submit_expr = re.compile(
 
 class LsfRunner(JobRunner):
     
-    def is_running(self, job):
+    def is_pending(self, job):
         lsf_id = job.info['lsf_id']
         if not lsf_id in self.all_jobs:
             return False
         found_job_info = self.all_jobs[lsf_id]
-        self.logger.debug('LSF status of the job [%s]: %s' 
+        logger.debug('LSF status of the job [%s]: %s' 
             % (job.id, found_job_info['lsf_status']))
         return found_job_info['lsf_status'].lower() == 'run'
 
@@ -45,7 +49,7 @@ class LsfRunner(JobRunner):
             # Check if report file is found
             if self.report_file_exists(job):
                 report = self.get_report_filepath(job)
-                self.logger.info('Found a report file for job [%d]: %s' % (
+                logger.info('Found a report file for job [%d]: %s' % (
                                  job.id, report))
                 return True
             return False
@@ -64,8 +68,8 @@ class LsfRunner(JobRunner):
                 _err=stderr,
             ).strip()
             result.error = stderr.getvalue().strip()
-            self.logger.debug('bsub output: %s' % result.output)
-            self.logger.debug('bsub error: %s' % result.error)
+            logger.debug('bsub output: %s' % result.output)
+            logger.debug('bsub error: %s' % result.error)
             match = submit_expr.search(result.output)
             if match:
                 result.has_failed = False
@@ -73,11 +77,11 @@ class LsfRunner(JobRunner):
                 result.details['lsf_queue'] = match.group(2)
         else:
             result.error = 'Job info has unknown queue.'
-            self.logger.warn(result.error)
+            logger.warn(result.error)
         return result
 
     def parse_report(self, report_filename, result):
-        self.logger.info('Parsing report file: ' + report_filename)
+        logger.info('Parsing report file: ' + report_filename)
         with open(report_filename, 'r') as report:
             report_text = report.read().split(NEW_LINE)
         section_name = 'header'
@@ -110,7 +114,7 @@ class LsfRunner(JobRunner):
     def get_result(self, job):
         if job.status not in ('pending', 'run', 'done', 'failed') \
             or self.report_file_exists(job) is False:
-            self.logger.error('Job has no result/report yet.')
+            logger.error('Job has no result/report yet.')
             return
         # Parse report
         result = JobResult(has_failed=True)
@@ -137,7 +141,7 @@ class LsfRunner(JobRunner):
                 continue
             match = job_expr.search(job_line)
             if not match:
-                self.logger.warn('Failed to parse job line: %s' % job_line)
+                logger.warn('Failed to parse job line: %s' % job_line)
                 continue
             lsf_info = dict()
             lsf_info['lsf_id'] = match.group(1)

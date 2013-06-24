@@ -8,6 +8,9 @@ from ConfigParser import ConfigParser
 from importlib import import_module
 
 
+logger = logging.getLogger(__name__)
+
+
 class PlatoException(Exception):
     '''Base class for plato exceptions'''
 
@@ -34,7 +37,7 @@ class JobResult(object):
 
     @classmethod
     def from_json(cls, json_string):
-        data = json.load(json_string)
+        data = json.loads(json_string)
         if not data:
             # Job has no result information
             return
@@ -95,7 +98,7 @@ class Monitor(object):
             if not os.path.exists(db_pathname):
                 if not self.is_interactive:
                     raise Exception('Missing persistence DB. Please initialize..')
-                self.logger.info('Creating missing db folder: %s' % db_pathname)
+                logger.info('Creating missing db folder: %s' % db_pathname)
                 os.makedirs(db_pathname)
 
     def new_job(self, batch_name):
@@ -117,7 +120,7 @@ class Monitor(object):
     
     def load_job(self, job_file):
         description = json.load(open(job_file))
-        self.logger.debug(
+        logger.debug(
             'Loading job with persistence monitor: %s', description)
         result = description.get('result', None)
         if result is not None:
@@ -127,7 +130,7 @@ class Monitor(object):
                    result=result, file_attachments=description['file_attachments']) 
 
     def save_job(self, job_filename, job, info=None):
-        self.logger.debug(
+        logger.debug(
             'Saving job with persistence monitor into: %s', job_filename)
         description = {
             'id': job.id,
@@ -144,7 +147,7 @@ class Monitor(object):
         jobs = list()
         for status in status_mask:
             status_folder = os.path.join(self.state_path, status)
-            job_file_mask = self.get_job_file()
+            job_file_mask = self.get_job_file()            
             job_files = find_files(
                 status_folder, Match(filetype='f', name=job_file_mask))
             for job_file in job_files:
@@ -166,7 +169,7 @@ class Monitor(object):
 
     def attach_job(self, job):
         if job.is_attached:
-            self.logger.warn('Job is already attached to the monitor.')
+            logger.warn('Job is already attached to the monitor.')
             return
         job_file = os.path.join(self.state_path, job.status, 
                                 self.get_job_file(job.id))
@@ -206,7 +209,7 @@ class JobRunner(object):
         '''True if report file exists for the job'''
         return os.path.exists(self.get_report_filepath(job))
 
-    def is_running(self, job):
+    def is_pending(self, job):
         '''
         Inherit this method to check for scheduler-specific parameters.
         ''' 
@@ -227,8 +230,8 @@ class JobRunner(object):
             attachment_file.write(data)
             attachment_file.close()
             file_pathnames[file_name] = file_path
-        # Substitute all filename entries in the command with real pathnames.
-        job.info['command'] = job.info['command'].format(file_pathnames)  
+        # Substitute all filename entries in the command with real pathnames.        
+        job.info['command'] = job.info['command'].format(**file_pathnames)
 
     def execute(self, job):
         '''
@@ -240,10 +243,8 @@ class JobRunner(object):
 
 class Scheduler(object):
 
-    def __init__(self, runner, monitor, config=None, logger=None):
-        self.logger = logger
-        if self.logger is None:
-            self.logger = logging.getLogger('Batch Job Scheduler')
+    def __init__(self, runner, monitor, config=None):
+
         self.config = config
         if self.config is None:
             self.config = ConfigParser()
@@ -251,7 +252,14 @@ class Scheduler(object):
         self.runner.scheduler = self
         self.monitor = monitor
         self.monitor.scheduler = self
-        self.monitor.init_db()
+        self.monitor.init_db()        
+        
+    def validate_config(self):
+        '''
+        Override to implement scheme-specific validation. This validation 
+        method can not be invoked by Scheduler__init__, but rather later,
+        after config files are loaded. 
+        '''
     
     @classmethod
     def create(cls, scheme_name, state_path, config, is_interactive=None, logger=None):
@@ -267,7 +275,7 @@ class Scheduler(object):
         if is_interactive is None:
             is_interactive = config.getboolean('scheduler', 'isinteractive') 
         monitor = MonitorCls(state_path, scheme_name, is_interactive)
-        return SchedulerCls(runner, monitor, config=config, logger=logger)
+        return SchedulerCls(runner, monitor, config=config)
     
     def submit_job(self, job, resubmit=False):
         success = True
@@ -281,7 +289,7 @@ class Scheduler(object):
         
     def accept_job(self, job):
         if job.status != 'submit':
-            self.logger.error('Will only accept jobs that were previously submitted.')
+            logger.error('Will only accept jobs that were previously submitted.')
             return
         # This call can potentially block, but it should not.
         result= self.runner.execute(job)
@@ -297,20 +305,20 @@ class Scheduler(object):
 
     def update_job(self, job):
         if not job.status in ('pending', 'run'):
-            self.logger.error('Will only update jobs that are already pending.')
+            logger.error('Will only update jobs that are already pending.')
             return
-        if self.runner.is_running(job):
+        if self.runner.is_pending(job):
             # Update status if necessary.
             if job.status == 'pending':
-                self.logger.info('Job is now running: %s ' % job)
+                logger.info('Job is now running: %s ' % job)
                 self.monitor.detach_job(job)
                 job.status = 'run'
                 self.monitor.attach_job(job)
             else:
-                self.logger.info('Job is still running: %s ' % job)
+                logger.info('Job is still running: %s ' % job)
             return
         if self.runner.is_done(job) and self.runner.report_file_exists(job):
-            self.logger.info('Job is (already) done: %s ' % job)
+            logger.info('Job is (already) done: %s ' % job)
             # Job finished.
             # TODO: check that file is not written into anymore
             result = self.runner.get_result(job)
@@ -318,11 +326,11 @@ class Scheduler(object):
                 self.error('Failed to obtain a result for: %s' % job)
             self.complete_job(job, result)
             return
-        self.logger.info('Job is still pending: %s' % job)
+        logger.info('Job is still pending: %s' % job)
     
     def complete_job(self, job, result):
         if not job.status in ('submit', 'pending', 'run'):
-            self.logger.error('We can only complete jobs that were submitted, pending or running.')
+            logger.error('We can only complete jobs that were submitted, pending or running.')
             return
         self.monitor.detach_job(job)
         job.result = result
@@ -332,13 +340,13 @@ class Scheduler(object):
             job.status = 'done'
         self.monitor.attach_job(job)
    
-    def submitt_jobs(self):
+    def submit_jobs(self):
         '''
         Make all freshly submitted plato jobs pending, i.e.
         Use actual low-level scheduler to submit them.
         '''
-        submitted_jobs = self.monitor.load_jobs(['submit'])
-        self.logger.info('Processing submitted jobs.. found (%d) jobs',
+        submitted_jobs = self.monitor.load_jobs(['submit'])        
+        logger.info('Processing submitted jobs.. found (%d) jobs',
                          len(submitted_jobs))
         for job in submitted_jobs:
             # TODO: check what we can before submitting the job into the runner
@@ -351,7 +359,7 @@ class Scheduler(object):
         failed.
         '''
         pending_jobs = self.monitor.load_jobs(['pending', 'run'])
-        self.logger.info('Processing pending and running jobs.. found (%d) jobs',
+        logger.info('Processing pending and running jobs.. found (%d) jobs',
                          len(pending_jobs))
         for job in pending_jobs:
             self.update_job(job)

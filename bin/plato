@@ -27,9 +27,11 @@ APP_BIN_DIR = os.path.dirname(os.path.abspath(__file__))
 logger = getBasicLogger(APP_NAME, logging.DEBUG)
 is_interactive = False
 
+
 def get_plato_app():
-    plato_app = PlatoApp(APP_NAME, logger, CONF_NAME, SCHEDULER, 
-                         is_interactive=is_interactive, debug=DEBUG)    
+    plato_app = PlatoApp(APP_NAME, CONF_NAME, SCHEDULER,
+                         is_interactive=is_interactive, debug=DEBUG,
+                         logger=logger)    
     plato_app.load_config(APP_BIN_DIR)
     plato_app.validate_config()
     return plato_app
@@ -41,7 +43,7 @@ def get_scheduler():
 
 # Below go functions that do actual work based on command line arguments
 def run_as_daemon(args):
-    plato_app = get_plato_app()
+    plato_app = get_plato_app()    
     if not is_interactive:        
         app_argv = [sys.argv[0], args.action]
         daemon_runner = DaemonRunner(plato_app, app_argv)

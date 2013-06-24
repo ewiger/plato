@@ -3,29 +3,28 @@ Implementation of "local" scheduler that can run on a local linux machine in
 multiprocessing mode. 
 '''
 import re
+import os
+import sys
+import time
 import logging
 from StringIO import StringIO
-from plato import getBasicLogger 
-from plato.schedule import (Monitor, Scheduler, JobRunner, JobResult)
-import os
-import time
 from datetime import datetime
 from daemon.daemon import DaemonContext
 import errno
 from lockfile import LockTimeout
 from daemon.pidlockfile import TimeoutPIDLockFile
-import sys
-import traceback
 from subprocess import PIPE, Popen
 
+from plato.schedule import (Monitor, Scheduler, JobRunner, JobResult)
 
-logger = getBasicLogger('local', logging.DEBUG)
+
+logger = logging.getLogger(__name__)
 
 
 class ExecProcessError(Exception):
     '''Raised if forking error or similar problem occurred.'''
 
-    
+
 NEW_LINE = '\n'
 NUM_SECTION_LINES = 1000
 HZ = os.sysconf(os.sysconf_names['SC_CLK_TCK'])
@@ -216,14 +215,17 @@ class LocalRunner(JobRunner):
         self.__pid_path = None
     
     def get_pidfile_path(self, id):
+        '''A path to a folder where to keep pids of running jobs'''
         if self.__pid_path is None:
             self.__pid_path = self.scheduler.config.get('local', 'pid_path')
             if '~' in self.__pid_path:
                 self.__pid_path = os.path.expanduser(self.__pid_path)
             self.__pid_path = os.path.abspath(self.__pid_path)
+            if not os.path.exists(self.__pid_path):
+                raise Exception('Pid path does not exists: ' + self.__pid_path)
         return os.path.join(self.__pid_path, 'localjob_%d.pid' % int(id))
             
-    def is_running(self, job):
+    def is_pending(self, job):
         '''Checking pidfiles and existence of process via os signaling'''
         local_id = job.info['local_id']
         pidfile_path = job.info['local_pidfile_path']
@@ -231,7 +233,7 @@ class LocalRunner(JobRunner):
             or not local_id in self.all_jobs:
             return False
         found_job_info = self.all_jobs[local_id]
-        self.logger.debug('LOCAL status of the job [%s]: %s' 
+        logger.debug('LOCAL status of the job [%s]: %s' 
             % (job.id, found_job_info['local_status']))
         return found_job_info['local_status'].lower() == 'run'
 
@@ -245,7 +247,7 @@ class LocalRunner(JobRunner):
         # Now we want to check if report file is found.
         if self.report_file_exists(job):
             report = self.get_report_filepath(job)
-            self.logger.info('Found a report file for job [%d]: %s' % (
+            logger.info('Found a report file for job [%d]: %s' % (
                              job.id, report))
             return True
         return False
@@ -271,14 +273,14 @@ class LocalRunner(JobRunner):
                 result.has_failed = False
             except Exception as exception:
                 result.error = str(exception)                
-                self.logger.warn(result.error)                        
+                logger.warn(result.error)                        
         else:
             result.error = 'Job info has unknown queue.'
-            self.logger.warn(result.error)
+            logger.warn(result.error)
         return result
 
     def parse_report(self, report_filename, result):
-        self.logger.info('Parsing report file: ' + report_filename)
+        logger.info('Parsing report file: ' + report_filename)
         with open(report_filename, 'r') as report:
             report_text = report.read().split('\n')
         section_name = 'header'
@@ -306,7 +308,7 @@ class LocalRunner(JobRunner):
     def get_result(self, job):
         if job.status not in ('pending', 'run', 'done', 'failed') \
             or self.report_file_exists(job) is False:
-            self.logger.error('Job has no result/report yet.')
+            logger.error('Job has no result/report yet.')
             return
         # Parse report
         result = JobResult(has_failed=True)
@@ -342,5 +344,6 @@ class LocalMonitor(Monitor):
 
 
 class LocalScheduler(Scheduler):
-    pass
     
+    def validate_config(self):
+        assert self.runner.get_pidfile_path(0) is not None

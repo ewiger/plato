@@ -2,25 +2,36 @@ import ConfigParser
 from plato.schedule import Scheduler
 import os
 import time
+import logging
+
+
+logger = logging.getLogger('plato.application')
 
 
 USER_HOME_DIR = os.path.expanduser('~/')
+# TODO: use dictConfig http://docs.python.org/2/library/logging.config.html
+LOGGING_LEVELS = {
+    'NOTSET': logging.NOTSET,
+    'WARN': logging.WARN,
+    'INFO': logging.INFO,
+    'DEBUG': logging.DEBUG,                  
+}
 
 
 class PlatoApp(object):
 
-    def __init__(self, name, logger, config_name, schedulername, debug=False, is_interactive=False):
-        self.name = name
-        self.logger = logger
+    def __init__(self, name, config_name, schedulername, debug=False, 
+                 is_interactive=False, logger=None):
+        self.name = name        
         self.config_name = config_name
         self.debug = debug
         self.is_interactive = is_interactive
         self.__state_path = None #  Must be set for get_state_path().
         self.config = ConfigParser.ConfigParser(
             defaults=self.get_config_vars(schedulername=schedulername))
-        self.init_config(config_name)
+        self.init_config(config_name)        
         self.scheduler = Scheduler.create(
-            self.schedulername, self.state_path, self.config)        
+            self.schedulername, self.state_path, self.config)
     
     @property
     def schedulername(self):
@@ -63,7 +74,7 @@ class PlatoApp(object):
         '''
         config_path = os.path.join(config_dir, config_name)
         if os.path.exists(config_path):
-            self.logger.info('Loading %s' % config_path)
+            logger.info('Loading %s' % config_path)
             self.config.read(config_path)
 
     def load_config(self, app_bin_dir, config_name=None):
@@ -77,6 +88,9 @@ class PlatoApp(object):
 
     def validate_config(self):
         '''(Optional) validate config for arguments'''
+        # First run optional (method can be empty) config check for scheduler 
+        # components.
+        self.scheduler.validate_config()
         # Assert configuration for correctness.
         self.config.has_section('app')
         assert self.config.get('app', 'statepath') is not None
@@ -87,7 +101,7 @@ class PlatoApp(object):
             # Try to get configuration option.
             self.__state_path = self.config.get('app', 'statepath')
             if not os.path.exists(self.__state_path):
-                self.logger.warn('Creating a missing dir: %s' % self.__state_path)
+                logger.warn('Creating a missing dir: %s' % self.__state_path)
                 os.makedirs(self.__state_path)
         return self.__state_path
     
@@ -117,7 +131,7 @@ class PlatoApp(object):
         return self.config.get('daemon', 'pidfile_timeout')
 
     def step(self):
-        self.scheduler.submitt_jobs()
+        self.scheduler.submit_jobs()
         self.scheduler.process_jobs()
         self.scheduler.runner.forget_job_list()
 
@@ -126,13 +140,5 @@ class PlatoApp(object):
             self.step()
             # Sleep x seconds.
             sleepping_pause = self.config.getint('daemon', 'sleepping_pause')
-            self.logger.info('Sleeping for %d (sec)..' % sleepping_pause)
+            logger.info('Sleeping for %d (sec)..' % sleepping_pause)
             time.sleep(sleepping_pause)
-
-
-def get_scheduler(name, logger, config_name, schedulername, *arg, **kwds):
-    '''
-    Instance application, read configuration in order to construct and 
-    return scheduler object.
-    '''
-    return PlatoApp(name, logger, config_name, schedulername, *arg, **kwds).scheduler
