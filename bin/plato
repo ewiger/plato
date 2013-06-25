@@ -96,7 +96,7 @@ class ArgumentParser(argparse.ArgumentParser):
 if __name__ == '__main__':
     parser = ArgumentParser(description='Command-line interface for plato '
                             + 'batch submission system.')
-    parser.add_argument('--interactive', action='store_true', default=False)
+    parser.add_argument('-i','--interactive', action='store_true', default=False)
     subparsers = parser.add_subparsers()
     
     # daemon

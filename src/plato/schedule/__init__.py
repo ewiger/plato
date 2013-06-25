@@ -41,7 +41,7 @@ class JobResult(object):
         if not data:
             # Job has no result information
             return
-        result = JobResult(
+        return JobResult(
             data['has_failed'],
             data['output'],
             data['error'],
@@ -122,9 +122,9 @@ class Monitor(object):
         description = json.load(open(job_file))
         logger.debug(
             'Loading job with persistence monitor: %s', description)
-        result = description.get('result', None)
+        result = description.get('result', None)        
         if result is not None:
-            result = JobResult.from_json(result)         
+            result = JobResult.from_json(result)                                 
         return Job(description['id'], description['batch_name'],
                    description['status'], info=description['info'],
                    result=result, file_attachments=description['file_attachments']) 
@@ -209,10 +209,10 @@ class JobRunner(object):
         '''True if report file exists for the job'''
         return os.path.exists(self.get_report_filepath(job))
 
-    def is_pending(self, job):
+    def is_running(self, job):
         '''
         Inherit this method to check for scheduler-specific parameters.
-        ''' 
+        '''
         pass
 
     def save_attachments(self, job):
@@ -224,7 +224,8 @@ class JobRunner(object):
             return
         file_pathnames = dict()
         for file_name in job.file_attachments:
-            file_path = os.path.join(self.attachment_path, file_name)            
+            file_path = os.path.join(self.attachment_path, file_name) 
+            file_path += '.%s' % job.id
             data = job.file_attachments[file_name]
             attachment_file = open(file_path, 'w+')
             attachment_file.write(data)
@@ -307,15 +308,14 @@ class Scheduler(object):
         if not job.status in ('pending', 'run'):
             logger.error('Will only update jobs that are already pending.')
             return
-        if self.runner.is_pending(job):
-            # Update status if necessary.
-            if job.status == 'pending':
-                logger.info('Job is now running: %s ' % job)
-                self.monitor.detach_job(job)
-                job.status = 'run'
-                self.monitor.attach_job(job)
-            else:
-                logger.info('Job is still running: %s ' % job)
+        if not self.runner.is_running(job):
+            logger.info('Job is still pending: %s' % job)            
+        # Update status if necessary.
+        if job.status == 'pending':
+            logger.info('Job is now running: %s ' % job)
+            self.monitor.detach_job(job)
+            job.status = 'run'
+            self.monitor.attach_job(job)
             return
         if self.runner.is_done(job) and self.runner.report_file_exists(job):
             logger.info('Job is (already) done: %s ' % job)
@@ -325,8 +325,9 @@ class Scheduler(object):
             if not result:
                 self.error('Failed to obtain a result for: %s' % job)
             self.complete_job(job, result)
-            return
-        logger.info('Job is still pending: %s' % job)
+        logger.info('Job is still running: %s ' % job)
+            
+        
     
     def complete_job(self, job, result):
         if not job.status in ('submit', 'pending', 'run'):

@@ -225,7 +225,7 @@ class LocalRunner(JobRunner):
                 raise Exception('Pid path does not exists: ' + self.__pid_path)
         return os.path.join(self.__pid_path, 'localjob_%d.pid' % int(id))
             
-    def is_pending(self, job):
+    def is_running(self, job):
         '''Checking pidfiles and existence of process via os signaling'''
         local_id = job.info['local_id']
         pidfile_path = job.info['local_pidfile_path']

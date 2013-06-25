@@ -34,7 +34,7 @@ submit_expr = re.compile(
 
 class LsfRunner(JobRunner):
     
-    def is_pending(self, job):
+    def is_running(self, job):
         lsf_id = job.info['lsf_id']
         if not lsf_id in self.all_jobs:
             return False
