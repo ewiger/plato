@@ -38,7 +38,8 @@ class Match(object):
         @param filetype: flag or name of the file type used as matching 
                          condition
         
-        @param name: fnmatch pattern to match file name
+        @param name: a strign for fnmatch pattern to match file name or 
+                     compiled regexp object.
         '''
         # File type condition.
         if filetype in filetypes.keys():
@@ -47,7 +48,11 @@ class Match(object):
         # File name condition.
         self.name_pattern = None
         if name is not None:
-            self.name_pattern = self.compile_fnmatch_pattern(name)
+            if isinstance(name, basestring):                
+                self.name_pattern = self.compile_fnmatch_pattern(name)
+            else:
+                # Assume it is already a regexp
+                self.name_pattern = name
         # Initialize private attributes as empty.
         self.__pathname = None
         self.__root = None
@@ -70,10 +75,10 @@ class Match(object):
         self.__root = root
         self.__name = name
         self.__pathname = mkpathname(root, name)
-        if self.type is not None:
-            if not self.match_type():
-                return False
-        if self.name_pattern is not None:
+        if self.type is not None:            
+            if not self.match_type():                
+                return False        
+        if self.name_pattern is not None:                        
             if not self.match_name():
                 return False
         return True

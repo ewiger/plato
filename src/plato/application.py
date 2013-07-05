@@ -29,7 +29,7 @@ class PlatoApp(object):
         self.__state_path = None #  Must be set for get_state_path().
         self.config = ConfigParser.ConfigParser(
             defaults=self.get_config_vars(schedulername=schedulername))
-        self.init_config(config_name)        
+        self.init_config()        
         self.scheduler = Scheduler.create(
             self.schedulername, self.state_path, self.config)
     
@@ -42,10 +42,10 @@ class PlatoApp(object):
         return dict(
             # Fallback to default folder in user home.
             statepath=os.path.expanduser('~/.' + self.name),
-                schedulername=schedulername,
-            )
+            schedulername=schedulername,
+        )
     
-    def init_config(self, config_name):
+    def init_config(self):
         # Start with building some defaults.
         # Init/set application options.
         self.config.add_section('app')
@@ -66,6 +66,14 @@ class PlatoApp(object):
         self.config.add_section('scheduler')
         self.config.set('scheduler', 'isinteractive', 
                         str(int(self.is_interactive)))
+        self.config.set('scheduler', 'attachments_path', 
+                        '%(statepath)s/attachments')        
+        self.config.set('scheduler', 'reports_path', 
+                        '%(statepath)s/reports')
+        # local
+        self.config.add_section('local')
+        self.config.set('local', 'pidfiles_path', 
+                        '%(statepath)s/pidfiles')
     
     def load_config_file(self, config_name, config_dir):
         '''

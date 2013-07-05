@@ -212,18 +212,18 @@ class LocalRunner(JobRunner):
     
     def __init__(self, report_path=None):
         super(LocalRunner, self).__init__(report_path)
-        self.__pid_path = None
+        self.__pidfiles_path = None
     
     def get_pidfile_path(self, id):
         '''A path to a folder where to keep pids of running jobs'''
-        if self.__pid_path is None:
-            self.__pid_path = self.scheduler.config.get('local', 'pid_path')
-            if '~' in self.__pid_path:
-                self.__pid_path = os.path.expanduser(self.__pid_path)
-            self.__pid_path = os.path.abspath(self.__pid_path)
-            if not os.path.exists(self.__pid_path):
-                raise Exception('Pid path does not exists: ' + self.__pid_path)
-        return os.path.join(self.__pid_path, 'localjob_%d.pid' % int(id))
+        if self.__pidfiles_path is None:
+            self.__pidfiles_path = self.scheduler.config.get('local', 'pidfiles_path')
+            if '~' in self.__pidfiles_path:
+                self.__pidfiles_path = os.path.expanduser(self.__pidfiles_path)
+            self.__pidfiles_path = os.path.abspath(self.__pidfiles_path)
+            if not os.path.exists(self.__pidfiles_path):
+                raise Exception('Pid path does not exists: ' + self.__pidfiles_path)
+        return os.path.join(self.__pidfiles_path, 'localjob_%d.pid' % int(id))
             
     def is_running(self, job):
         '''Checking pidfiles and existence of process via os signaling'''

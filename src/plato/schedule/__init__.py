@@ -93,7 +93,9 @@ class Monitor(object):
 
     def init_db(self):
         '''Init persistence database'''
-        for folder in status_set:
+        folders = ['pidfiles', 'attachments', 'reports']
+        folders.extend(status_set)
+        for folder in folders:
             db_pathname = os.path.join(self.state_path, folder)
             if not os.path.exists(db_pathname):
                 if not self.is_interactive:
@@ -180,12 +182,16 @@ class Monitor(object):
 class JobRunner(object):
     
     def __init__(self, report_path=None, attachment_path=None):
-        self.report_path = report_path 
-        if report_path is None: 
-            self.report_path = os.getcwd()
-        if attachment_path is None: 
-            self.attachment_path = os.getcwd()
+        self.report_path = report_path
+        self.attachment_path = attachment_path
         self.__all_jobs = None
+
+    def init_db(self):
+        config = self.scheduler.config 
+        if self.report_path is None: 
+            self.report_path = config.get('scheduler', 'reports_path')
+        if self.attachment_path is None: 
+            self.attachment_path = config.get('scheduler', 'attachments_path')
 
     @property
     def logger(self):
@@ -253,7 +259,12 @@ class Scheduler(object):
         self.runner.scheduler = self
         self.monitor = monitor
         self.monitor.scheduler = self
-        self.monitor.init_db()        
+        self.init_db()
+    
+    def init_db(self):
+        '''Override to implement custom db initialization'''
+        self.runner.init_db()
+        self.monitor.init_db()
         
     def validate_config(self):
         '''
@@ -261,7 +272,7 @@ class Scheduler(object):
         method can not be invoked by Scheduler__init__, but rather later,
         after config files are loaded. 
         '''
-    
+        
     @classmethod
     def create(cls, scheme_name, state_path, config, is_interactive=None, logger=None):
         '''Create scheduler by its scheme name'''
