@@ -93,10 +93,13 @@ def collect_size(root, name):
     return (pathname, filesize)
 
 
-def find_files(path, match=anypathname, collect=mkpathname):
+def find_files(path, match=anypathname, collect=mkpathname, recursive=True):
     if not os.path.exists(path):
         raise Exception('Path does not exists: %s' % path)
-    for root, dirs, files in os.walk(path):
+    walker = os.walk(path)
+    if not recursive:
+        walker = [next(walker)]
+    for root, dirs, files in walker:
         names = dirs + files
         for name in names:
             if match(root, name):
