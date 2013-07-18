@@ -5,7 +5,7 @@ from glob import glob
 from setuptools import setup
 
 setup(
-    name='Plato',
+    name='python-plato',
     version='0.1.2',
     description='Python Batching Utilities',
     author='Yauhen Yakimovich',
@@ -16,4 +16,6 @@ setup(
     packages=['plato', 'plato.shell', 'plato.schedule'],
     package_dir={
         'plato': 'src/plato',
-    },)
+    },
+    download_url='https://github.com/ewiger/plato/tarball/master',
+)
