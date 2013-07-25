@@ -4,15 +4,15 @@ import sys
 import argparse
 import logging
 
-def extend_sys_path(module_path, folders):
-    root_path = os.path.dirname(os.path.dirname(module_path))
-    for folder in folders:
-        # Prepend path to the modules effectively prioritizing them.
-        sys.path.insert(0, os.path.join(root_path, folder))
-extend_sys_path(os.path.abspath(__file__), ('lib','src'))
+#def extend_sys_path(module_path, folders):
+#    root_path = os.path.dirname(os.path.dirname(module_path))
+#    for folder in folders:
+#        # Prepend path to the modules effectively prioritizing them.
+#        sys.path.insert(0, os.path.join(root_path, folder))
+#extend_sys_path(os.path.abspath(__file__), ('lib','src'))
 
 
-from daemon.runner import DaemonRunner
+from daemoncxt.runner import DaemonRunner
 from plato import getBasicLogger
 from plato.application import PlatoApp
 
