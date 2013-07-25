@@ -25,7 +25,7 @@ def readme():
 
 setup(
     name='PyPlato',
-    version='0.1.2',
+    version='0.1.4',
     description='Python Batching Utilities',
     long_description=readme(),
     author='Yauhen Yakimovich',
@@ -39,4 +39,8 @@ setup(
         'plato': 'src/plato',
     },
     download_url='https://github.com/ewiger/plato/tarball/master',
+    install_requires=[
+        'sh >= 1.08',
+        'daemoncxt >= 1.5.6',
+    ],
 )
